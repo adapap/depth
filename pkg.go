@@ -24,6 +24,14 @@ type Pkg struct {
 	Raw *build.Package `json:"-"`
 }
 
+func (p *Pkg) matchesPattern() bool {
+	if p.Tree.Pattern == "" {
+		return true
+	}
+
+	return strings.HasPrefix(p.Name, p.Tree.Pattern)
+}
+
 // Resolve recursively finds all dependencies for the Pkg and the packages it depends on.
 func (p *Pkg) Resolve(i Importer) {
 	// Resolved is always true, regardless of if we skip the import,
@@ -31,7 +39,7 @@ func (p *Pkg) Resolve(i Importer) {
 	p.Resolved = true
 
 	name := p.cleanName()
-	if name == "" {
+	if name == "" || !p.matchesPattern() {
 		return
 	}
 
@@ -99,6 +107,9 @@ func (p *Pkg) addDep(i Importer, name string, srcDir string, isTest bool) {
 		Tree:   p.Tree,
 		Parent: p,
 		Test:   isTest,
+	}
+	if !dep.matchesPattern() {
+		return
 	}
 	dep.Resolve(i)
 

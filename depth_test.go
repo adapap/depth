@@ -3,6 +3,8 @@ package depth
 import (
 	"go/build"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type MockImporter struct {
@@ -21,9 +23,7 @@ func TestTree_Resolve(t *testing.T) {
 	}
 
 	// Positive case, expect deps
-	if err := tr.Resolve("strings"); err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, tr.Resolve("strings"))
 
 	if tr.Root == nil || tr.Root.Name != "strings" {
 		t.Fatalf("Unexpected Root, expected=%v, got=%v", "strings", tr.Root)
