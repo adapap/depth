@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/KyleBanks/depth"
+	"github.com/adapap/depth"
+	"github.com/stretchr/testify/assert"
 )
 
 func Test_parse(t *testing.T) {
@@ -19,62 +20,61 @@ func Test_parse(t *testing.T) {
 		{false, false, 10, false, ""},
 		{true, false, 10, false, ""},
 		{false, true, 5, true, ""},
-		{false, true, 5, true, "github.com/KyleBanks/depth"},
+		{false, true, 5, true, "github.com/adapap/depth"},
 		{false, true, 5, true, ""},
 	}
 
-	for idx, tt := range tests {
-		tr, _ := parse([]string{
-			fmt.Sprintf("-internal=%v", tt.internal),
-			fmt.Sprintf("-test=%v", tt.test),
-			fmt.Sprintf("-max=%v", tt.depth),
-			fmt.Sprintf("-json=%v", tt.json),
-			fmt.Sprintf("-explain=%v", tt.explain),
+	for _, tc := range tests {
+		tr, options := parse([]string{
+			fmt.Sprintf("-internal=%v", tc.internal),
+			fmt.Sprintf("-test=%v", tc.test),
+			fmt.Sprintf("-max=%v", tc.depth),
+			fmt.Sprintf("-json=%v", tc.json),
+			fmt.Sprintf("-explain=%v", tc.explain),
 		})
 
-		if tr.ResolveInternal != tt.internal {
-			t.Fatalf("[%v] Unexpected ResolveInternal, expected=%v, got=%v", idx, tt.internal, tr.ResolveInternal)
-		} else if tr.ResolveTest != tt.test {
-			t.Fatalf("[%v] Unexpected ResolveTest, expected=%v, got=%v", idx, tt.test, tr.ResolveTest)
-		} else if tr.MaxDepth != tt.depth {
-			t.Fatalf("[%v] Unexpected MaxDepth, expected=%v, got=%v", idx, tt.depth, tr.MaxDepth)
-		} else if outputJSON != tt.json {
-			t.Fatalf("[%v] Unexpected outputJSON, expected=%v, got=%v", idx, tt.json, outputJSON)
-		} else if explainPkg != tt.explain {
-			t.Fatalf("[%v] Unexpected explainPkg, expected=%v, got=%v", idx, tt.explain, explainPkg)
-		}
+		assert.Equal(t, tc.internal, tr.ResolveInternal)
+		assert.Equal(t, tc.test, tr.ResolveTest)
+		assert.Equal(t, tc.depth, tr.MaxDepth)
+		assert.Equal(t, tc.json, options.OutputJSON)
+		assert.Equal(t, tc.explain, options.ExplainPkg)
 	}
 }
 
 func Example_handlePkgsStrings() {
-	var t depth.Tree
+	var tree depth.Tree
 
-	handlePkgs(&t, []string{"strings"}, false, "")
+	_ = handlePkgs(&tree, &depth.Options{PackageNames: []string{"strings"}})
 	// Output:
 	// strings
 	//   ├ errors
+	//   ├ internal/abi
 	//   ├ internal/bytealg
+	//   ├ internal/stringslite
 	//   ├ io
 	//   ├ sync
 	//   ├ unicode
 	//   ├ unicode/utf8
 	//   └ unsafe
-	// 7 dependencies (7 internal, 0 external, 0 testing).
+	// 9 dependencies (9 internal, 0 external, 0 testing).
 }
 
 func Example_handlePkgsTestStrings() {
-	var t depth.Tree
-	t.ResolveTest = true
+	var tree depth.Tree
+	tree.ResolveTest = true
 
-	handlePkgs(&t, []string{"strings"}, false, "")
+	_ = handlePkgs(&tree, &depth.Options{PackageNames: []string{"strings"}})
 	// Output:
 	// strings
 	//   ├ bytes
 	//   ├ errors
 	//   ├ fmt
+	//   ├ internal/abi
 	//   ├ internal/bytealg
+	//   ├ internal/stringslite
 	//   ├ internal/testenv
 	//   ├ io
+	//   ├ math
 	//   ├ math/rand
 	//   ├ reflect
 	//   ├ strconv
@@ -83,22 +83,22 @@ func Example_handlePkgsTestStrings() {
 	//   ├ unicode
 	//   ├ unicode/utf8
 	//   └ unsafe
-	// 14 dependencies (14 internal, 0 external, 7 testing).
+	// 17 dependencies (17 internal, 0 external, 8 testing).
 }
 
 func Example_handlePkgsDepth() {
-	var t depth.Tree
+	var tree depth.Tree
 
-	handlePkgs(&t, []string{"github.com/KyleBanks/depth/cmd/depth"}, false, "")
+	_ = handlePkgs(&tree, &depth.Options{PackageNames: []string{"github.com/adapap/depth/cmd/depth"}})
 	// Output:
-	// github.com/KyleBanks/depth/cmd/depth
+	// github.com/adapap/depth/cmd/depth
 	//   ├ encoding/json
 	//   ├ flag
 	//   ├ fmt
 	//   ├ io
 	//   ├ os
 	//   ├ strings
-	//   └ github.com/KyleBanks/depth
+	//   └ github.com/adapap/depth
 	//     ├ bytes
 	//     ├ errors
 	//     ├ go/build
@@ -110,16 +110,16 @@ func Example_handlePkgsDepth() {
 }
 
 func Example_handlePkgsUnknown() {
-	var t depth.Tree
+	var tree depth.Tree
 
-	handlePkgs(&t, []string{"notreal"}, false, "")
+	_ = handlePkgs(&tree, &depth.Options{PackageNames: []string{"notreal"}})
 	// Output:
 	// 'notreal': FATAL: unable to resolve root package
 }
 
 func Example_handlePkgsJson() {
-	var t depth.Tree
-	handlePkgs(&t, []string{"strings"}, true, "")
+	var tree depth.Tree
+	_ = handlePkgs(&tree, &depth.Options{PackageNames: []string{"strings"}, OutputJSON: true})
 
 	// Output:
 	// {
@@ -134,7 +134,19 @@ func Example_handlePkgsJson() {
 	//       "deps": null
 	//     },
 	//     {
+	//       "name": "internal/abi",
+	//       "internal": true,
+	//       "resolved": true,
+	//       "deps": null
+	//     },
+	//     {
 	//       "name": "internal/bytealg",
+	//       "internal": true,
+	//       "resolved": true,
+	//       "deps": null
+	//     },
+	//     {
+	//       "name": "internal/stringslite",
 	//       "internal": true,
 	//       "resolved": true,
 	//       "deps": null
@@ -175,10 +187,10 @@ func Example_handlePkgsJson() {
 }
 
 func Example_handlePkgsExplain() {
-	var t depth.Tree
+	var tree depth.Tree
 
-	handlePkgs(&t, []string{"github.com/KyleBanks/depth/cmd/depth"}, false, "strings")
+	_ = handlePkgs(&tree, &depth.Options{PackageNames: []string{"github.com/adapap/depth/cmd/depth"}, ExplainPkg: "strings"})
 	// Output:
-	// github.com/KyleBanks/depth/cmd/depth -> strings
-	// github.com/KyleBanks/depth/cmd/depth -> github.com/KyleBanks/depth -> strings
+	// github.com/adapap/depth/cmd/depth -> strings
+	// github.com/adapap/depth/cmd/depth -> github.com/adapap/depth -> strings
 }

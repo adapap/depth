@@ -7,8 +7,9 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/KyleBanks/depth"
+	"github.com/adapap/depth"
 )
 
 const (
@@ -18,9 +19,6 @@ const (
 	outputPrefixLast    = "└ "
 )
 
-var outputJSON bool
-var explainPkg string
-
 type summary struct {
 	numInternal int
 	numExternal int
@@ -28,46 +26,65 @@ type summary struct {
 }
 
 func main() {
-	t, pkgs := parse(os.Args[1:])
-	if err := handlePkgs(t, pkgs, outputJSON, explainPkg); err != nil {
-		os.Exit(1)
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: depth [options] <packages>")
+		return
+	}
+
+	t, options := parse(os.Args[1:])
+	if err := handlePkgs(t, options); err != nil {
+		return
 	}
 }
 
-// parse constructs a depth.Tree from command-line arguments, and returns the
-// remaining user-supplied package names
-func parse(args []string) (*depth.Tree, []string) {
+func parse(args []string) (*depth.Tree, *depth.Options) {
 	f := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
+	// constructs a depth.Tree from command-line arguments, and returns the
+	// remaining user-supplied package names
 	var t depth.Tree
+	var options depth.Options
+
+	// Import options.
 	f.BoolVar(&t.ResolveInternal, "internal", false, "If set, resolves dependencies of internal (stdlib) packages.")
 	f.BoolVar(&t.ResolveTest, "test", false, "If set, resolves dependencies used for testing.")
 	f.IntVar(&t.MaxDepth, "max", 0, "Sets the maximum depth of dependencies to resolve.")
-	f.BoolVar(&outputJSON, "json", false, "If set, outputs the depencies in JSON format.")
-	f.StringVar(&explainPkg, "explain", "", "If set, show which packages import the specified target")
-	f.Parse(args)
+	f.StringVar(&t.Pattern, "pattern", "", "If set, use the given pattern as a filter on package names.")
 
-	return &t, f.Args()
+	// Output options.
+	f.BoolVar(&options.OutputJSON, "json", false, "If set, outputs the depencies in JSON format.")
+	f.StringVar(&options.ExplainPkg, "explain", "", "If set, show which packages import the specified target")
+
+	_ = f.Parse(args)
+
+	options.PackageNames = f.Args()
+
+	return &t, &options
 }
 
 // handlePkgs takes a slice of package names, resolves a Tree on them,
 // and outputs each Tree to Stdout.
-func handlePkgs(t *depth.Tree, pkgs []string, outputJSON bool, explainPkg string) error {
-	for _, pkg := range pkgs {
+func handlePkgs(t *depth.Tree, options *depth.Options) error {
+	for _, pkg := range options.PackageNames {
 
+		start := time.Now()
 		err := t.Resolve(pkg)
 		if err != nil {
 			fmt.Printf("'%v': FATAL: %v\n", pkg, err)
 			return err
 		}
+		elapsed := time.Since(start)
+		fmt.Printf("Resolved [%s] in %s\n", pkg, elapsed)
 
-		if outputJSON {
-			writePkgJSON(os.Stdout, *t.Root)
+		if options.OutputJSON {
+			if err := writePkgJSON(os.Stdout, *t.Root); err != nil {
+				return err
+			}
 			continue
 		}
 
-		if explainPkg != "" {
-			writeExplain(os.Stdout, *t.Root, []string{}, explainPkg)
+		if options.ExplainPkg != "" {
+			writeExplain(os.Stdout, *t.Root, []string{}, options.ExplainPkg)
 			continue
 		}
 
@@ -109,10 +126,10 @@ func collectSummary(sum *summary, pkg depth.Pkg, nameSet map[string]struct{}) {
 }
 
 // writePkgJSON writes the full Pkg as JSON to the provided Writer.
-func writePkgJSON(w io.Writer, p depth.Pkg) {
+func writePkgJSON(w io.Writer, p depth.Pkg) error {
 	e := json.NewEncoder(w)
 	e.SetIndent("", "  ")
-	e.Encode(p)
+	return e.Encode(p)
 }
 
 func writePkg(w io.Writer, p depth.Pkg) {
