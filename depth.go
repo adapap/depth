@@ -30,6 +30,7 @@ import (
 	"errors"
 	"go/build"
 	"os"
+	"sync"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -49,7 +50,8 @@ type Importer interface {
 // Tree represents the top level of a Pkg and the configuration used to
 // initialize and represent its contents.
 type Tree struct {
-	Root *Pkg
+	Root  *Pkg
+	Mutex sync.Mutex
 
 	ResolveInternal bool
 	ResolveTest     bool
@@ -85,9 +87,11 @@ func (t *Tree) Resolve(name string) error {
 	// reuse the same cache.
 	t.importCache = nil
 
-	// Allow custom importers, but use build.Default if none is provided.
+	// Allow custom importers, but use a caching importer if none is provided.
 	if t.Importer == nil {
-		t.Importer = &build.Default
+		t.Importer = &CachingImporter{
+			cache: make(map[string]*build.Package),
+		}
 	}
 
 	t.Root.Resolve(t.Importer)
@@ -128,6 +132,9 @@ func (t *Tree) isAtMaxDepth(p *Pkg) bool {
 // hasSeenImport returns true if the import name provided has already been seen within the tree.
 // This function only returns false for a name once.
 func (t *Tree) hasSeenImport(name string) bool {
+	t.Mutex.Lock()
+	defer t.Mutex.Unlock()
+
 	if t.importCache == nil {
 		t.importCache = make(map[string]struct{})
 	}

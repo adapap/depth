@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/adapap/depth"
@@ -23,6 +24,7 @@ type summary struct {
 	numInternal int
 	numExternal int
 	numTesting  int
+	maxDepth    int
 }
 
 func main() {
@@ -42,7 +44,9 @@ func parse(args []string) (*depth.Tree, *depth.Options) {
 
 	// constructs a depth.Tree from command-line arguments, and returns the
 	// remaining user-supplied package names
-	var t depth.Tree
+	t := &depth.Tree{
+		Mutex: sync.Mutex{},
+	}
 	var options depth.Options
 
 	// Import options.
@@ -59,7 +63,7 @@ func parse(args []string) (*depth.Tree, *depth.Options) {
 
 	options.PackageNames = f.Args()
 
-	return &t, &options
+	return t, &options
 }
 
 // handlePkgs takes a slice of package names, resolves a Tree on them,
@@ -74,7 +78,6 @@ func handlePkgs(t *depth.Tree, options *depth.Options) error {
 			return err
 		}
 		elapsed := time.Since(start)
-		fmt.Printf("Resolved [%s] in %s\n", pkg, elapsed)
 
 		if options.OutputJSON {
 			if err := writePkgJSON(os.Stdout, *t.Root); err != nil {
@@ -90,6 +93,7 @@ func handlePkgs(t *depth.Tree, options *depth.Options) error {
 
 		writePkg(os.Stdout, *t.Root)
 		writePkgSummary(os.Stdout, *t.Root)
+		fmt.Printf("Resolved <%s> in %s\n", pkg, elapsed)
 	}
 	return nil
 }
@@ -101,11 +105,12 @@ func writePkgSummary(w io.Writer, pkg depth.Pkg) {
 	for _, p := range pkg.Deps {
 		collectSummary(&sum, p, set)
 	}
-	fmt.Fprintf(w, "%d dependencies (%d internal, %d external, %d testing).\n",
+	fmt.Fprintf(w, "%d dependencies (%d internal, %d external, %d testing) | max depth: %d\n",
 		sum.numInternal+sum.numExternal,
 		sum.numInternal,
 		sum.numExternal,
-		sum.numTesting)
+		sum.numTesting,
+		sum.maxDepth)
 }
 
 func collectSummary(sum *summary, pkg depth.Pkg, nameSet map[string]struct{}) {
@@ -118,6 +123,9 @@ func collectSummary(sum *summary, pkg depth.Pkg, nameSet map[string]struct{}) {
 		}
 		if pkg.Test {
 			sum.numTesting++
+		}
+		if pkg.Depth > sum.maxDepth {
+			sum.maxDepth = pkg.Depth
 		}
 		for _, p := range pkg.Deps {
 			collectSummary(sum, p, nameSet)
