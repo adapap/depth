@@ -2,10 +2,13 @@ package depth
 
 import (
 	"bytes"
+	"fmt"
 	"go/build"
 	"path"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Pkg represents a Go source package, and its dependencies.
@@ -21,7 +24,9 @@ type Pkg struct {
 	Parent *Pkg  `json:"-"`
 	Deps   []Pkg `json:"deps"`
 
-	Raw *build.Package `json:"-"`
+	Raw     *build.Package `json:"-"`
+	Elapsed time.Duration  `json:"-"`
+	Depth   int            `json:"-"`
 }
 
 func (p *Pkg) matchesPattern() bool {
@@ -29,7 +34,14 @@ func (p *Pkg) matchesPattern() bool {
 		return true
 	}
 
-	return strings.HasPrefix(p.Name, p.Tree.Pattern)
+	// Split pattern by comma to handle multiple patterns.
+	patterns := strings.Split(p.Tree.Pattern, ",")
+	for _, pattern := range patterns {
+		if strings.Contains(p.Name, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // Resolve recursively finds all dependencies for the Pkg and the packages it depends on.
@@ -49,7 +61,9 @@ func (p *Pkg) Resolve(i Importer) {
 		importMode = build.FindOnly
 	}
 
+	start := time.Now()
 	pkg, err := i.Import(name, p.SrcDir, importMode)
+	p.Elapsed = time.Since(start)
 	if err != nil {
 		// TODO: Check the error type?
 		p.Resolved = false
@@ -68,8 +82,8 @@ func (p *Pkg) Resolve(i Importer) {
 		}
 	}
 
-	//first we set the regular dependencies, then we add the test dependencies
-	//sharing the same set. This allows us to mark all test-only deps linearly
+	// First we set the regular dependencies, then we add the test dependencies
+	// sharing the same set. This allows us to mark all test-only deps linearly
 	unique := make(map[string]struct{})
 	p.setDeps(i, pkg.Imports, pkg.Dir, unique, false)
 	if p.Tree.ResolveTest {
@@ -81,6 +95,9 @@ func (p *Pkg) Resolve(i Importer) {
 // and creates the Deps of the Pkg. Each dependency is also further resolved prior to being added
 // to the Pkg.
 func (p *Pkg) setDeps(i Importer, imports []string, srcDir string, unique map[string]struct{}, isTest bool) {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
 	for _, imp := range imports {
 		// Mostly for testing files where cyclic imports are allowed.
 		if imp == p.Name {
@@ -93,27 +110,38 @@ func (p *Pkg) setDeps(i Importer, imports []string, srcDir string, unique map[st
 		}
 		unique[imp] = struct{}{}
 
-		p.addDep(i, imp, srcDir, isTest)
+		wg.Add(1)
+		go func(imp string) {
+			defer wg.Done()
+			dep := p.addDepParallel(i, imp, srcDir, isTest)
+			if dep == nil {
+				return
+			}
+			mu.Lock()
+			p.Deps = append(p.Deps, *dep)
+			mu.Unlock()
+		}(imp)
 	}
 
+	wg.Wait()
 	sort.Sort(byInternalAndName(p.Deps))
 }
 
-// addDep creates a Pkg and it's dependencies from an imported package name.
-func (p *Pkg) addDep(i Importer, name string, srcDir string, isTest bool) {
+// addDepParallel is a parallel-safe version of addDep that returns the created Pkg
+func (p *Pkg) addDepParallel(i Importer, name string, srcDir string, isTest bool) *Pkg {
 	dep := Pkg{
 		Name:   name,
 		SrcDir: srcDir,
 		Tree:   p.Tree,
 		Parent: p,
 		Test:   isTest,
+		Depth:  p.Depth + 1,
 	}
 	if !dep.matchesPattern() {
-		return
+		return nil
 	}
 	dep.Resolve(i)
-
-	p.Deps = append(p.Deps, dep)
+	return &dep
 }
 
 // isParent goes recursively up the chain of Pkgs to determine if the name provided is ever a
@@ -167,6 +195,10 @@ func (p *Pkg) String() string {
 
 	if !p.Resolved {
 		b.Write([]byte(" (unresolved)"))
+	}
+
+	if p.Elapsed > 0 {
+		b.Write([]byte(fmt.Sprintf(" (%s)", p.Elapsed)))
 	}
 
 	return b.String()
