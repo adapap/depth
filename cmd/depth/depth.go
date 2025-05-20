@@ -15,7 +15,7 @@ import (
 
 const (
 	outputClosedPadding = "  "
-	outputOpenPadding   = "│ "
+	outputOpenPadding   = "  "
 	outputPrefix        = "├ "
 	outputPrefixLast    = "└ "
 )
@@ -49,17 +49,29 @@ func parse(args []string) (*depth.Tree, *depth.Options) {
 	}
 	var options depth.Options
 
+	var includePattern string
+	var excludePattern string
+	
 	// Import options.
 	f.BoolVar(&t.ResolveInternal, "internal", false, "If set, resolves dependencies of internal (stdlib) packages.")
 	f.BoolVar(&t.ResolveTest, "test", false, "If set, resolves dependencies used for testing.")
 	f.IntVar(&t.MaxDepth, "max", 0, "Sets the maximum depth of dependencies to resolve.")
-	f.StringVar(&t.Pattern, "pattern", "", "If set, use the given pattern as a filter on package names.")
+	f.StringVar(&includePattern, "include", "", "If set, use the given pattern(s) as a prefix filter of package names to keep.")
+	f.StringVar(&excludePattern, "exclude", "", "If set, use the given pattern(s) as a prefix filter of package names to ignore.")
+	f.BoolVar(&t.Verbose, "verbose", false, "If set, print verbose output.")
 
 	// Output options.
 	f.BoolVar(&options.OutputJSON, "json", false, "If set, outputs the depencies in JSON format.")
 	f.StringVar(&options.ExplainPkg, "explain", "", "If set, show which packages import the specified target")
 
 	_ = f.Parse(args)
+	
+	if includePattern != "" {
+		t.IncludePatterns = strings.Split(includePattern, ",")
+	}
+	if excludePattern != "" {
+		t.ExcludePatterns = strings.Split(excludePattern, ",")
+	}
 
 	options.PackageNames = f.Args()
 

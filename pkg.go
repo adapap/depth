@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	
+	"github.com/adapap/depth/slicehelpers"
 )
 
 // Pkg represents a Go source package, and its dependencies.
@@ -30,15 +32,19 @@ type Pkg struct {
 }
 
 func (p *Pkg) matchesPattern() bool {
-	if p.Tree.Pattern == "" {
+	if len(p.Tree.IncludePatterns) == 0 {
 		return true
 	}
 
 	// Split pattern by comma to handle multiple patterns.
-	patterns := strings.Split(p.Tree.Pattern, ",")
-	for _, pattern := range patterns {
+	for _, pattern := range p.Tree.IncludePatterns {
 		if strings.Contains(p.Name, pattern) {
-			return true
+			if len(p.Tree.ExcludePatterns) == 0 {
+				return true
+			}
+			return !slicehelpers.Any(p.Tree.ExcludePatterns, func(excludePattern string) bool {
+				return strings.Contains(p.Name, excludePattern)
+			})
 		}
 	}
 	return false

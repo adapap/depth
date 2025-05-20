@@ -27,12 +27,15 @@
 package depth
 
 import (
+	"fmt"
 	"errors"
 	"go/build"
 	"os"
 	"sync"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/adapap/depth/set"
 )
 
 // testing an external dep
@@ -56,10 +59,11 @@ type Tree struct {
 	ResolveInternal bool
 	ResolveTest     bool
 	MaxDepth        int
-	Pattern         string
+	IncludePatterns []string
+	ExcludePatterns []string
 	Importer        Importer
-
-	importCache map[string]struct{}
+	Verbose         bool
+	importCache     set.Set[string]
 }
 
 type Options struct {
@@ -89,9 +93,7 @@ func (t *Tree) Resolve(name string) error {
 
 	// Allow custom importers, but use a caching importer if none is provided.
 	if t.Importer == nil {
-		t.Importer = &CachingImporter{
-			cache: make(map[string]*build.Package),
-		}
+		t.Importer = NewCachingImporter()
 	}
 
 	t.Root.Resolve(t.Importer)
@@ -136,12 +138,15 @@ func (t *Tree) hasSeenImport(name string) bool {
 	defer t.Mutex.Unlock()
 
 	if t.importCache == nil {
-		t.importCache = make(map[string]struct{})
+		t.importCache = set.New[string]()
 	}
 
-	if _, ok := t.importCache[name]; ok {
+	if t.importCache.Has(name) {
 		return true
 	}
-	t.importCache[name] = struct{}{}
+	t.importCache.Add(name)
+	if t.Verbose {
+		fmt.Println("New import:", name)
+	}
 	return false
 }
